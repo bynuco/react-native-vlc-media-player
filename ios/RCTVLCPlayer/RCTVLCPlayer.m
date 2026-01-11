@@ -3,12 +3,8 @@
 #import "React/RCTConvert.h"
 #import "React/RCTEventDispatcher.h"
 #import "React/UIView+React.h"
-#if TARGET_OS_TV
-#import <TVVLCKit/TVVLCKit.h>
-#else
-#import <MobileVLCKit/MobileVLCKit.h>
-#endif
 #import <AVFoundation/AVFoundation.h>
+#import <VLCKit/VLCKit.h>
 static NSString *const statusKeyPath = @"status";
 static NSString *const playbackLikelyToKeepUpKeyPath =
     @"playbackLikelyToKeepUp";
