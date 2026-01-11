@@ -71,61 +71,67 @@ static NSString *const playbackRate = @"rate";
 - (void)play
 {
     if (_player) {
-        [_player play];
-        _paused = NO;
+         dispatch_async(dispatch_get_main_queue(), ^{
+            [_player play];
+            _paused = NO;
+        });
     }
 }
 
 - (void)pause
 {
     if (_player) {
-        [_player pause];
-        _paused = YES;
+         dispatch_async(dispatch_get_main_queue(), ^{
+            [_player pause];
+            _paused = YES;
+        });
     }
 }
 
 - (void)setSource:(NSDictionary *)source
 {
-    if (_player) {
-        [self _release];
-    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (_player) {
+            [self _release];
+        }
 
-    _videoInfo = nil;
+        _videoInfo = nil;
 
-    // [bavv edit start]
-    NSString* uriString = [source objectForKey:@"uri"];
-    NSURL* uri = [NSURL URLWithString:uriString];
-    int initType = [source objectForKey:@"initType"];
-    NSDictionary* initOptions = [source objectForKey:@"initOptions"];
-    
-    // Get acceptInvalidCertificates from source
-    _acceptInvalidCertificates = [[source objectForKey:@"acceptInvalidCertificates"] boolValue];
-    NSLog(@"iOS: Set acceptInvalidCertificates to %@", _acceptInvalidCertificates ? @"YES" : @"NO");
+        // [bavv edit start]
+        NSString* uriString = [source objectForKey:@"uri"];
+        NSURL* uri = [NSURL URLWithString:uriString];
+        int initType = [source objectForKey:@"initType"];
+        NSDictionary* initOptions = [source objectForKey:@"initOptions"];
+        
+        // Get acceptInvalidCertificates from source
+        _acceptInvalidCertificates = [[source objectForKey:@"acceptInvalidCertificates"] boolValue];
+        NSLog(@"iOS: Set acceptInvalidCertificates to %@", _acceptInvalidCertificates ? @"YES" : @"NO");
 
-    if (initType == 1) {
-        _player = [[VLCMediaPlayer alloc] init];
-    } else {
-        _player = [[VLCMediaPlayer alloc] initWithOptions:initOptions];
-    }
-    _player.delegate = self;
-    _player.drawable = self;
-    // [bavv edit end]
+        if (initType == 1) {
+            _player = [[VLCMediaPlayer alloc] init];
+        } else {
+            _player = [[VLCMediaPlayer alloc] initWithOptions:initOptions];
+        }
+        _player.delegate = self;
+        _player.drawable = self;
+        // [bavv edit end]
 
-    VLCLibrary *library = _player.libraryInstance;
+        VLCLibrary *library = _player.libraryInstance;
 
-    VLCConsoleLogger *consoleLogger = [[VLCConsoleLogger alloc] init];
-    consoleLogger.level = kVLCLogLevelDebug;
-    library.loggers = @[consoleLogger];
+        VLCConsoleLogger *consoleLogger = [[VLCConsoleLogger alloc] init];
+        consoleLogger.level = kVLCLogLevelDebug;
+        library.loggers = @[consoleLogger];
 
-    // Create dialog provider with custom UI to handle dialogs programmatically
-    self.dialogProvider = [[VLCDialogProvider alloc] initWithLibrary:library customUI:YES];
-    self.dialogProvider.customRenderer = self;
-    _player.media = [VLCMedia mediaWithURL:uri];
+        // Create dialog provider with custom UI to handle dialogs programmatically
+        self.dialogProvider = [[VLCDialogProvider alloc] initWithLibrary:library customUI:YES];
+        self.dialogProvider.customRenderer = self;
+        _player.media = [VLCMedia mediaWithURL:uri];
 
-    if (_autoplay)
-        [_player play];
-    
-    [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+        if (_autoplay)
+            [_player play];
+        
+        [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+    });
 }
 
 - (void)setAutoplay:(BOOL)autoplay
@@ -139,7 +145,8 @@ static NSString *const playbackRate = @"rate";
 - (void)setPaused:(BOOL)paused
 {
     _paused = paused;
-
+    
+    // play/pause already dispatch to main queue
     if (!paused) {
         [self play];
     } else {

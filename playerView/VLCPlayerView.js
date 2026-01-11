@@ -342,7 +342,7 @@ export default class VLCPlayerView extends Component {
     this.setState({
       isError: true,
     });
-    onError&&onError()
+    onError && onError()
   };
 
   _onOpen = e => {
