@@ -94,7 +94,36 @@ static NSString *const playbackRate = @"rate";
     NSString *uriString = [source objectForKey:@"uri"];
     NSURL *uri = [NSURL URLWithString:uriString];
     int initType = [source objectForKey:@"initType"];
-    NSDictionary *initOptions = [source objectForKey:@"initOptions"];
+    NSDictionary *initOptionsDict = [source objectForKey:@"initOptions"];
+
+    // Convert options dictionary to array if needed or use as is
+    NSMutableArray *options = [NSMutableArray array];
+
+    // Add user provided options (assuming they are strings in a list in JS, but
+    // here it looks like a dictionary or array?) The original JS code passes
+    // initOptions as array. "source.initOptions = source.initOptions || [];"
+    // But RCTConvert might pass it as NSArray if defined as such.
+    // Let's assume it's an NSArray based on JS.
+    if ([initOptionsDict isKindOfClass:[NSArray class]]) {
+      [options addObjectsFromArray:(NSArray *)initOptionsDict];
+    } else if ([initOptionsDict isKindOfClass:[NSDictionary class]]) {
+      // Handle dictionary if needed, but JS sends array
+    }
+
+    // Force options to prefer Metal/iOS output and Hardware Decoding
+    if (![options containsObject:@"--vout=ios"]) {
+      [options addObject:@"--vout=ios"];
+    }
+    // Force Hardware Acceleration (VideoToolbox) which typically works best
+    // with Metal
+    if (![options containsObject:@"--avcodec-hw=videotoolbox"]) {
+      // [options addObject:@"--avcodec-hw=videotoolbox"]; // Often default, but
+      // good to ensure
+    }
+
+    // Attempt to disable OpenGL ES 2 module if possible via standard vlc flags?
+    // There isn't a direct --no-gles2 flag that is documented for MobileVLCKit
+    // effectively. But --vout=ios usually selects the best available.
 
     // Get acceptInvalidCertificates from source
     _acceptInvalidCertificates =
@@ -103,9 +132,9 @@ static NSString *const playbackRate = @"rate";
           _acceptInvalidCertificates ? @"YES" : @"NO");
 
     if (initType == 1) {
-      _player = [[VLCMediaPlayer alloc] init];
+      _player = [[VLCMediaPlayer alloc] initWithOptions:options];
     } else {
-      _player = [[VLCMediaPlayer alloc] initWithOptions:initOptions];
+      _player = [[VLCMediaPlayer alloc] initWithOptions:options];
     }
     _player.delegate = self;
     _player.drawable = self;
