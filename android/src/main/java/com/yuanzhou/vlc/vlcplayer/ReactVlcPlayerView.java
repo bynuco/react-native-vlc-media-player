@@ -363,9 +363,12 @@ class ReactVlcPlayerView extends TextureView implements
 
             if (initOptions != null) {
                 ArrayList options = initOptions.toArrayList();
-                for (int i = 0; i < options.size() - 1; i++) {
-                    String option = (String) options.get(i);
-                    cOptions.add(option);
+                for (int i = 0; i < options.size(); i++) {
+                    Object optionObj = options.get(i);
+                    if (optionObj instanceof String) {
+                        String option = (String) optionObj;
+                        cOptions.add(option);
+                    }
                 }
             }
             // Create LibVLC
@@ -379,38 +382,46 @@ class ReactVlcPlayerView extends TextureView implements
             setMutedModifier(mMuted);
             mMediaPlayer.setEventListener(mPlayerListener);
             
-            // Register dialog callbacks for certificate handling
-            Dialog.setCallbacks(libvlc, new Dialog.Callbacks() {
-                @Override
-                public void onDisplay(Dialog.QuestionDialog dialog) {
-                    handleCertificateDialog(dialog);
-                }
-                
-                @Override
-                public void onDisplay(Dialog.ErrorMessage dialog) {
-                    // Handle error dialogs if needed
-                }
-                
-                @Override
-                public void onDisplay(Dialog.LoginDialog dialog) {
-                    // Handle login dialogs if needed
-                }
-                
-                @Override
-                public void onDisplay(Dialog.ProgressDialog dialog) {
-                    // Handle progress dialogs if needed
-                }
-                
-                @Override
-                public void onCanceled(Dialog dialog) {
-                    // Handle dialog cancellation
-                }
-                
-                @Override
-                public void onProgressUpdate(Dialog.ProgressDialog dialog) {
-                    // Handle progress updates
-                }
-            });
+            // Register dialog callbacks for certificate handling (VLC 4.0.0a18 compatible)
+            try {
+                Dialog.setCallbacks(libvlc, new Dialog.Callbacks() {
+                    @Override
+                    public void onDisplay(Dialog.QuestionDialog dialog) {
+                        handleCertificateDialog(dialog);
+                    }
+                    
+                    @Override
+                    public void onDisplay(Dialog.ErrorMessage dialog) {
+                        // Handle error dialogs if needed
+                        Log.i(TAG, "Error dialog: " + dialog.getText());
+                    }
+                    
+                    @Override
+                    public void onDisplay(Dialog.LoginDialog dialog) {
+                        // Handle login dialogs if needed
+                        Log.i(TAG, "Login dialog: " + dialog.getUsername());
+                    }
+                    
+                    @Override
+                    public void onDisplay(Dialog.ProgressDialog dialog) {
+                        // Handle progress dialogs if needed
+                        Log.i(TAG, "Progress dialog: " + dialog.getText());
+                    }
+                    
+                    @Override
+                    public void onCanceled(Dialog dialog) {
+                        // Handle dialog cancellation
+                        Log.i(TAG, "Dialog canceled");
+                    }
+                    
+                    @Override
+                    public void onProgressUpdate(Dialog.ProgressDialog dialog) {
+                        // Handle progress updates
+                    }
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Error setting dialog callbacks: " + e.getMessage());
+            }
             //this.getHolder().setKeepScreenOn(true);
             IVLCVout vlcOut = mMediaPlayer.getVLCVout();
             if (mVideoWidth > 0 && mVideoHeight > 0) {
@@ -440,12 +451,15 @@ class ReactVlcPlayerView extends TextureView implements
                 }
                 m.setHWDecoderEnabled(hmEnabled, hmForced);
             }
-            //添加media  option
+            //添加media  option (VLC 4.0.0a18 compatible)
             if (mediaOptions != null) {
                 ArrayList options = mediaOptions.toArrayList();
-                for (int i = 0; i < options.size() - 1; i++) {
-                    String option = (String) options.get(i);
-                    m.addOption(option);
+                for (int i = 0; i < options.size(); i++) {
+                    Object optionObj = options.get(i);
+                    if (optionObj instanceof String) {
+                        String option = (String) optionObj;
+                        m.addOption(option);
+                    }
                 }
             }
             mVideoInfo = null;
@@ -491,16 +505,33 @@ class ReactVlcPlayerView extends TextureView implements
         if (libvlc == null)
             return;
 
-        final IVLCVout vout = mMediaPlayer.getVLCVout();
-        vout.removeCallback(callback);
-        vout.detachViews();
-        //surfaceView.removeOnLayoutChangeListener(onLayoutChangeListener);
-        mMediaPlayer.release();
-        libvlc.release();
-        libvlc = null;
+        try {
+            if (mMediaPlayer != null) {
+                final IVLCVout vout = mMediaPlayer.getVLCVout();
+                if (vout != null) {
+                    vout.removeCallback(callback);
+                    vout.detachViews();
+                }
+                mMediaPlayer.release();
+                mMediaPlayer = null;
+            }
+            
+            // Clear dialog callbacks (VLC 4.0.0a18 compatible)
+            try {
+                Dialog.setCallbacks(libvlc, null);
+            } catch (Exception e) {
+                Log.e(TAG, "Error clearing dialog callbacks: " + e.getMessage());
+            }
+            
+            libvlc.release();
+            libvlc = null;
+        } catch (Exception e) {
+            Log.e(TAG, "Error releasing player: " + e.getMessage());
+        }
 
         if(mProgressUpdateRunnable != null){
             mProgressUpdateHandler.removeCallbacks(mProgressUpdateRunnable);
+            mProgressUpdateRunnable = null;
         }
     }
 
@@ -723,26 +754,35 @@ class ReactVlcPlayerView extends TextureView implements
     }
 
     private void handleCertificateDialog(Dialog.QuestionDialog dialog) {
-        String title = dialog.getTitle();
-        String text = dialog.getText();
-        
-        Log.i(TAG, "Certificate dialog - Title: " + title + ", Text: " + text);
-        
-        // Check if it's a certificate validation dialog
-        if (text != null && (text.contains("certificate") || text.contains("SSL") || text.contains("TLS") || text.contains("cert"))) {
-            if (acceptInvalidCertificates) {
-                // Auto-accept invalid certificate
-                dialog.postAction(1); // Action 1 typically means "Accept"
-                Log.i(TAG, "Auto-accepted certificate dialog");
+        try {
+            String title = dialog.getTitle();
+            String text = dialog.getText();
+            
+            Log.i(TAG, "Certificate dialog - Title: " + title + ", Text: " + text);
+            
+            // Check if it's a certificate validation dialog
+            if (text != null && (text.contains("certificate") || text.contains("SSL") || text.contains("TLS") || text.contains("cert"))) {
+                if (acceptInvalidCertificates) {
+                    // Auto-accept invalid certificate (VLC 4.0.0a18 compatible)
+                    dialog.postAction(1); // Action 1 typically means "Accept"
+                    Log.i(TAG, "Auto-accepted certificate dialog");
+                } else {
+                    // Reject invalid certificate (default secure behavior)
+                    dialog.postAction(2); // Action 2 typically means "Reject"
+                    Log.i(TAG, "Rejected certificate dialog (acceptInvalidCertificates=false)");
+                }
             } else {
-                // Reject invalid certificate (default secure behavior)
-                dialog.postAction(2); // Action 2 typically means "Reject"
-                Log.i(TAG, "Rejected certificate dialog (acceptInvalidCertificates=false)");
+                // For non-certificate dialogs, dismiss
+                dialog.dismiss();
+                Log.i(TAG, "Dismissed non-certificate dialog");
             }
-        } else {
-            // For non-certificate dialogs, dismiss
-            dialog.dismiss();
-            Log.i(TAG, "Dismissed non-certificate dialog");
+        } catch (Exception e) {
+            Log.e(TAG, "Error handling certificate dialog: " + e.getMessage());
+            try {
+                dialog.dismiss();
+            } catch (Exception ex) {
+                Log.e(TAG, "Error dismissing dialog: " + ex.getMessage());
+            }
         }
     }
     

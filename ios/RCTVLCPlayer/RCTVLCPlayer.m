@@ -114,15 +114,18 @@ static NSString *const playbackRate = @"rate";
     // Convert options dictionary to array if needed or use as is
     NSMutableArray *options = [NSMutableArray array];
 
-    // Add user provided options (assuming they are strings in a list in JS, but
-    // here it looks like a dictionary or array?) The original JS code passes
-    // initOptions as array. "source.initOptions = source.initOptions || [];"
-    // But RCTConvert might pass it as NSArray if defined as such.
-    // Let's assume it's an NSArray based on JS.
+    // Add user provided options (VLC 4.0.0a18 compatible)
+    // The original JS code passes initOptions as array
     if ([initOptionsDict isKindOfClass:[NSArray class]]) {
-      [options addObjectsFromArray:(NSArray *)initOptionsDict];
+      NSArray *optionsArray = (NSArray *)initOptionsDict;
+      for (id option in optionsArray) {
+        if ([option isKindOfClass:[NSString class]]) {
+          [options addObject:option];
+        }
+      }
     } else if ([initOptionsDict isKindOfClass:[NSDictionary class]]) {
       // Handle dictionary if needed, but JS sends array
+      NSLog(@"Warning: initOptions is a dictionary, expected array");
     }
 
     // Force options to prefer Metal/iOS output and Hardware Decoding
@@ -146,9 +149,12 @@ static NSString *const playbackRate = @"rate";
     NSLog(@"iOS: Set acceptInvalidCertificates to %@",
           _acceptInvalidCertificates ? @"YES" : @"NO");
 
+    // Initialize VLCMediaPlayer (VLC 4.0.0a18 compatible)
     if (initType == 1) {
+      // Default initialization
       _player = [[VLCMediaPlayer alloc] initWithOptions:options];
     } else {
+      // Custom initialization with options
       _player = [[VLCMediaPlayer alloc] initWithOptions:options];
     }
     _player.delegate = self;
@@ -163,14 +169,23 @@ static NSString *const playbackRate = @"rate";
 
     VLCLibrary *library = _player.libraryInstance;
 
-    VLCConsoleLogger *consoleLogger = [[VLCConsoleLogger alloc] init];
-    consoleLogger.level = kVLCLogLevelDebug;
-    library.loggers = @[ consoleLogger ];
+    // Configure logging (VLC 4.0.0a18 compatible)
+    @try {
+      VLCConsoleLogger *consoleLogger = [[VLCConsoleLogger alloc] init];
+      consoleLogger.level = kVLCLogLevelDebug;
+      library.loggers = @[ consoleLogger ];
+    } @catch (NSException *exception) {
+      NSLog(@"Warning: Could not set console logger: %@", exception.reason);
+    }
 
-    // Create dialog provider with custom UI to handle dialogs programmatically
-    self.dialogProvider = [[VLCDialogProvider alloc] initWithLibrary:library
-                                                            customUI:YES];
-    self.dialogProvider.customRenderer = self;
+    // Create dialog provider with custom UI to handle dialogs programmatically (VLC 4.0.0a18 compatible)
+    @try {
+      self.dialogProvider = [[VLCDialogProvider alloc] initWithLibrary:library
+                                                              customUI:YES];
+      self.dialogProvider.customRenderer = self;
+    } @catch (NSException *exception) {
+      NSLog(@"Warning: Could not create dialog provider: %@", exception.reason);
+    }
     _player.media = [VLCMedia mediaWithURL:uri];
 
     if (_autoplay)
@@ -510,7 +525,7 @@ static NSString *const playbackRate = @"rate";
 
   NSLog(@"VLC Question - Title: %@, Message: %@", title, message);
 
-  // Check if this is a certificate-related dialog
+  // Check if this is a certificate-related dialog (VLC 4.0.0a18 compatible)
   NSString *fullText =
       [NSString stringWithFormat:@"%@ %@", title ?: @"", message ?: @""];
   BOOL isCertificateDialog = [fullText containsString:@"certificate"] ||
@@ -519,19 +534,23 @@ static NSString *const playbackRate = @"rate";
                              [fullText containsString:@"cert"] ||
                              [fullText containsString:@"security"];
 
-  if (isCertificateDialog) {
-    if (_acceptInvalidCertificates) {
-      // Accept certificate (usually action1)
-      [self.dialogProvider postAction:1 forDialogReference:reference];
-      NSLog(@"iOS: Auto-accepted certificate dialog");
+  @try {
+    if (isCertificateDialog) {
+      if (_acceptInvalidCertificates) {
+        // Accept certificate (usually action1)
+        [self.dialogProvider postAction:1 forDialogReference:reference];
+        NSLog(@"iOS: Auto-accepted certificate dialog");
+      } else {
+        // Reject certificate (cancel)
+        [self.dialogProvider postAction:3 forDialogReference:reference]; // Cancel
+        NSLog(@"iOS: Rejected certificate dialog");
+      }
     } else {
-      // Reject certificate (cancel)
-      [self.dialogProvider postAction:3 forDialogReference:reference]; // Cancel
-      NSLog(@"iOS: Rejected certificate dialog");
+      // For other dialogs, default to cancel
+      [self.dialogProvider postAction:3 forDialogReference:reference];
     }
-  } else {
-    // For other dialogs, default to cancel
-    [self.dialogProvider postAction:3 forDialogReference:reference];
+  } @catch (NSException *exception) {
+    NSLog(@"Error handling question dialog: %@", exception.reason);
   }
 }
 
@@ -565,12 +584,21 @@ static NSString *const playbackRate = @"rate";
 - (void)_release {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
 
-  if (_player.media)
-    [_player stop];
+  // Release player (VLC 4.0.0a18 compatible)
+  @try {
+    if (_player) {
+      if (_player.media) {
+        [_player stop];
+      }
+      _player.delegate = nil;
+      _player = nil;
+    }
+  } @catch (NSException *exception) {
+    NSLog(@"Error releasing player: %@", exception.reason);
+  }
 
-  if (_player)
-    _player = nil;
-
+  // Clear dialog provider
+  self.dialogProvider = nil;
   _eventDispatcher = nil;
 }
 
