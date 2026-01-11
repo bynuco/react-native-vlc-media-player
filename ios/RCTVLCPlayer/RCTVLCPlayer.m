@@ -4,7 +4,7 @@
 #import "React/RCTEventDispatcher.h"
 #import "React/UIView+React.h"
 #import <AVFoundation/AVFoundation.h>
-#import <VLCKit/VLCKit.h>
+#import <QuartzCore/QuartzCore.h>
 static NSString *const statusKeyPath = @"status";
 static NSString *const playbackLikelyToKeepUpKeyPath =
     @"playbackLikelyToKeepUp";
@@ -133,7 +133,13 @@ static NSString *const playbackRate = @"rate";
       _player = [[VLCMediaPlayer alloc] initWithOptions:options];
     }
     _player.delegate = self;
+
+    // CATransaction wrapper to prevent threading crash with
+    // VLCOpenGLES2VideoView
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     _player.drawable = self;
+    [CATransaction commit];
     // [bavv edit end]
 
     VLCLibrary *library = _player.libraryInstance;
@@ -214,56 +220,50 @@ static NSString *const playbackRate = @"rate";
       VLCMediaPlayerState state = _player.state;
       switch (state) {
       case VLCMediaPlayerStateOpening:
-        NSLog(@"VLCMediaPlayerStateOpening  %lu",
-              (unsigned long)_player.audioTracks.count);
+        NSLog(@"VLCMediaPlayerStateOpening  %i", _player.numberOfAudioTracks);
         self.onVideoOpen(@{@"target" : self.reactTag});
         self.onVideoLoadStart(@{@"target" : self.reactTag});
         break;
       case VLCMediaPlayerStatePaused:
         _paused = YES;
-        NSLog(@"VLCMediaPlayerStatePaused %lu",
-              (unsigned long)_player.audioTracks.count);
+        NSLog(@"VLCMediaPlayerStatePaused %i", _player.numberOfAudioTracks);
         self.onVideoPaused(@{@"target" : self.reactTag});
         break;
       case VLCMediaPlayerStateStopped:
-        NSLog(@"VLCMediaPlayerStateStopped %lu",
-              (unsigned long)_player.audioTracks.count);
+        NSLog(@"VLCMediaPlayerStateStopped %i", _player.numberOfAudioTracks);
         self.onVideoStopped(@{@"target" : self.reactTag});
         break;
       case VLCMediaPlayerStateBuffering:
-        NSLog(@"VLCMediaPlayerStateBuffering %lu",
-              (unsigned long)_player.audioTracks.count);
+        NSLog(@"VLCMediaPlayerStateBuffering %i", _player.numberOfAudioTracks);
         self.onVideoBuffering(@{@"target" : self.reactTag});
         break;
       case VLCMediaPlayerStatePlaying:
         _paused = NO;
-        NSLog(@"VLCMediaPlayerStatePlaying %lu",
-              (unsigned long)_player.audioTracks.count);
+        NSLog(@"VLCMediaPlayerStatePlaying %i", _player.numberOfAudioTracks);
         self.onVideoPlaying(@{
           @"target" : self.reactTag,
           @"seekable" : [NSNumber numberWithBool:[_player isSeekable]],
           @"duration" : [NSNumber numberWithInt:[_player.media.length intValue]]
         });
         break;
-      case VLCMediaPlayerStateEnded: {
-        NSLog(@"VLCMediaPlayerStateEnded %lu",
-              (unsigned long)_player.audioTracks.count);
-        int currentTime = [[_player time] intValue];
-        int remainingTime = [[_player remainingTime] intValue];
-        int duration = [_player.media.length intValue];
+      case VLCMediaPlayerStateEnded:
+        NSLog(@"VLCMediaPlayerStateEnded %i", _player.numberOfAudioTracks);
+        {
+          int currentTime = [[_player time] intValue];
+          int remainingTime = [[_player remainingTime] intValue];
+          int duration = [_player.media.length intValue];
 
-        self.onVideoEnded(@{
-          @"target" : self.reactTag,
-          @"currentTime" : [NSNumber numberWithInt:currentTime],
-          @"remainingTime" : [NSNumber numberWithInt:remainingTime],
-          @"duration" : [NSNumber numberWithInt:duration],
-          @"position" : [NSNumber numberWithFloat:_player.position]
-        });
+          self.onVideoEnded(@{
+            @"target" : self.reactTag,
+            @"currentTime" : [NSNumber numberWithInt:currentTime],
+            @"remainingTime" : [NSNumber numberWithInt:remainingTime],
+            @"duration" : [NSNumber numberWithInt:duration],
+            @"position" : [NSNumber numberWithFloat:_player.position]
+          });
+        }
         break;
-      }
       case VLCMediaPlayerStateError:
-        NSLog(@"VLCMediaPlayerStateError %lu",
-              (unsigned long)_player.audioTracks.count);
+        NSLog(@"VLCMediaPlayerStateError %i", _player.numberOfAudioTracks);
         // This callback doesn't have any data about the error, we need to rely
         // on the error dialog
         [self _release];
@@ -279,15 +279,13 @@ static NSString *const playbackRate = @"rate";
 
 - (void)mediaDidFinishParsing:(VLCMedia *)aMedia {
   dispatch_async(dispatch_get_main_queue(), ^{
-    NSLog(@"VLCMediaDidFinishParsing %lu",
-          (unsigned long)_player.audioTracks.count);
+    NSLog(@"VLCMediaDidFinishParsing %i", _player.numberOfAudioTracks);
   });
 }
 
 - (void)mediaMetaDataDidChange:(VLCMedia *)aMedia {
   dispatch_async(dispatch_get_main_queue(), ^{
-    NSLog(@"VLCMediaMetaDataDidChange %lu",
-          (unsigned long)_player.audioTracks.count);
+    NSLog(@"VLCMediaMetaDataDidChange %i", _player.numberOfAudioTracks);
   });
 }
 
@@ -326,7 +324,7 @@ static NSString *const playbackRate = @"rate";
 - (void)updateVideoInfo {
   NSMutableDictionary *info = [NSMutableDictionary new];
   info[@"duration"] = _player.media.length.value;
-
+  int i;
   if (_player.videoSize.width > 0) {
     info[@"videoSize"] = @{
       @"width" : @(_player.videoSize.width),
@@ -334,30 +332,27 @@ static NSString *const playbackRate = @"rate";
     };
   }
 
-  // VLCKit 4: Use audioTracks array of VLCMediaPlayerTrack objects
-  NSArray *audioTracks = _player.audioTracks;
-  if (audioTracks.count > 0) {
+  if (_player.numberOfAudioTracks > 0) {
     NSMutableArray *tracks = [NSMutableArray new];
-    for (id track in audioTracks) {
-      // VLCKit 4 track objects have trackId and trackName properties
-      NSNumber *trackId = [track valueForKey:@"trackId"];
-      NSString *trackName = [track valueForKey:@"trackName"];
-      if (trackId && trackName) {
-        [tracks addObject:@{@"id" : trackId, @"name" : trackName}];
+    for (i = 0; i < _player.numberOfAudioTracks; i++) {
+      if (_player.audioTrackIndexes[i] && _player.audioTrackNames[i]) {
+        [tracks addObject:@{
+          @"id" : _player.audioTrackIndexes[i],
+          @"name" : _player.audioTrackNames[i]
+        }];
       }
     }
     info[@"audioTracks"] = tracks;
   }
 
-  // VLCKit 4: Use textTracks array for subtitles
-  NSArray *textTracks = _player.textTracks;
-  if (textTracks.count > 0) {
+  if (_player.numberOfSubtitlesTracks > 0) {
     NSMutableArray *tracks = [NSMutableArray new];
-    for (id track in textTracks) {
-      NSNumber *trackId = [track valueForKey:@"trackId"];
-      NSString *trackName = [track valueForKey:@"trackName"];
-      if (trackId && trackName) {
-        [tracks addObject:@{@"id" : trackId, @"name" : trackName}];
+    for (i = 0; i < _player.numberOfSubtitlesTracks; i++) {
+      if (_player.videoSubTitlesIndexes[i] && _player.videoSubTitlesNames[i]) {
+        [tracks addObject:@{
+          @"id" : _player.videoSubTitlesIndexes[i],
+          @"name" : _player.videoSubTitlesNames[i]
+        }];
       }
     }
     info[@"textTracks"] = tracks;
@@ -397,32 +392,11 @@ static NSString *const playbackRate = @"rate";
 }
 
 - (void)setAudioTrack:(int)track {
-  // VLCKit 4: Find track by ID and select it
-  NSArray *audioTracks = _player.audioTracks;
-  for (id audioTrack in audioTracks) {
-    NSNumber *trackId = [audioTrack valueForKey:@"trackId"];
-    if (trackId && [trackId intValue] == track) {
-      [_player selectAudioTrack:audioTrack];
-      break;
-    }
-  }
+  [_player setCurrentAudioTrackIndex:track];
 }
 
 - (void)setTextTrack:(int)track {
-  // VLCKit 4: Find track by ID and select it
-  if (track == -1) {
-    // Disable subtitles
-    [_player deselectAllTextTracks];
-  } else {
-    NSArray *textTracks = _player.textTracks;
-    for (id textTrack in textTracks) {
-      NSNumber *trackId = [textTrack valueForKey:@"trackId"];
-      if (trackId && [trackId intValue] == track) {
-        [_player selectTextTrack:textTrack];
-        break;
-      }
-    }
-  }
+  [_player setCurrentVideoSubTitleIndex:track];
 }
 
 - (void)startRecording:(NSString *)path {
