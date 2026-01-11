@@ -16,6 +16,9 @@ const withMobileVlcKit = (config, options) => {
 
             const contents = fs.readFileSync(filePath, "utf-8");
 
+            // Add VLCKit pod (VLC 4.0.0a18)
+            // Not: VLC 4.0.0a18 alpha sürümü CocoaPods'ta mevcut olmayabilir
+            // Bu durumda kullanıcının manuel olarak Podfile'a eklemesi gerekebilir
             const newCode = generateCode.mergeContents({
                 tag: "withVlcMediaPlayer",
                 src: contents,
