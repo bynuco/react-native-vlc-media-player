@@ -28,6 +28,9 @@ static NSString *const playbackRate = @"rate";
   BOOL _paused;
   BOOL _autoplay;
   BOOL _acceptInvalidCertificates;
+
+  // Store video track index before going to background
+  int _savedVideoTrackIndex;
 }
 
 - (instancetype)initWithEventDispatcher:(RCTEventDispatcher *)eventDispatcher {
@@ -51,13 +54,29 @@ static NSString *const playbackRate = @"rate";
 }
 
 - (void)applicationWillEnterForeground:(NSNotification *)notification {
-  if (!_paused)
-    [self play];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (_player) {
+      // Restore video track when coming to foreground
+      if (_savedVideoTrackIndex > 0) {
+        [_player setCurrentVideoTrackIndex:_savedVideoTrackIndex];
+      }
+      if (!_paused) {
+        [_player play];
+      }
+    }
+  });
 }
 
 - (void)applicationWillResignActive:(NSNotification *)notification {
-  if (!_paused)
-    [self play];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (_player) {
+      // Save current video track and disable it to prevent OpenGL threading
+      // crash
+      _savedVideoTrackIndex = [_player currentVideoTrackIndex];
+      [_player setCurrentVideoTrackIndex:-1]; // Disable video rendering
+      [_player pause];
+    }
+  });
 }
 
 - (void)play {
@@ -325,6 +344,7 @@ static NSString *const playbackRate = @"rate";
   NSMutableDictionary *info = [NSMutableDictionary new];
   info[@"duration"] = _player.media.length.value;
   int i;
+
   if (_player.videoSize.width > 0) {
     info[@"videoSize"] = @{
       @"width" : @(_player.videoSize.width),
